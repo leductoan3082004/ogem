@@ -68,15 +68,13 @@ func (cm *CacheManager) lookupSemantic(ctx context.Context, req *CacheRequest, t
 	}, nil
 }
 
-func (cm *CacheManager) findBestSemanticMatch(reqEmbedding []float32, req *CacheRequest, tenantID string) (*CacheEntry, float64) {
+func (cm *CacheManager) findBestSimilarityMatch(req *CacheRequest, tenantID string, similarityCalculator func(*CacheEntry) float64, threshold float64) (*CacheEntry, float64) {
 	cm.memoryMutex.RLock()
 	defer cm.memoryMutex.RUnlock()
 
 	var bestMatch *CacheEntry
 	var bestSimilarity float64
-	threshold := cm.config.SemanticConfig.SimilarityThreshold
 
-	// Search through cached entries for semantic matches
 	for _, entry := range cm.memoryCache {
 		// Skip entries from different tenants if tenant isolation is enabled
 		if cm.config.PerTenantLimits && entry.TenantID != tenantID {
@@ -88,18 +86,13 @@ func (cm *CacheManager) findBestSemanticMatch(reqEmbedding []float32, req *Cache
 			continue
 		}
 
-		// Skip entries without embeddings
-		if len(entry.Embedding) == 0 {
-			continue
-		}
-
-		// Skip entries with different models (semantic matching should be model-specific)
+		// Skip entries with different models
 		if entry.Request.Model != req.Model {
 			continue
 		}
 
-		// Calculate semantic similarity
-		similarity := cm.calculateCosineSimilarity(reqEmbedding, entry.Embedding)
+		// Calculate similarity using the provided calculator
+		similarity := similarityCalculator(entry)
 
 		if similarity >= threshold && similarity > bestSimilarity {
 			bestSimilarity = similarity
@@ -108,6 +101,20 @@ func (cm *CacheManager) findBestSemanticMatch(reqEmbedding []float32, req *Cache
 	}
 
 	return bestMatch, bestSimilarity
+}
+
+func (cm *CacheManager) findBestSemanticMatch(reqEmbedding []float32, req *CacheRequest, tenantID string) (*CacheEntry, float64) {
+	threshold := cm.config.SemanticConfig.SimilarityThreshold
+
+	similarityCalculator := func(entry *CacheEntry) float64 {
+		// Skip entries without embeddings
+		if len(entry.Embedding) == 0 {
+			return 0.0
+		}
+		return cm.calculateCosineSimilarity(reqEmbedding, entry.Embedding)
+	}
+
+	return cm.findBestSimilarityMatch(req, tenantID, similarityCalculator, threshold)
 }
 
 // lookupToken performs token-based fuzzy cache matching
@@ -136,42 +143,15 @@ func (cm *CacheManager) lookupToken(req *CacheRequest, tenantID string) (*CacheL
 }
 
 func (cm *CacheManager) findBestTokenMatch(reqTokens []string, req *CacheRequest, tenantID string) (*CacheEntry, float64) {
-	cm.memoryMutex.RLock()
-	defer cm.memoryMutex.RUnlock()
-
-	var bestMatch *CacheEntry
-	var bestSimilarity float64
 	threshold := cm.config.TokenConfig.TokenSimilarityThreshold
 
-	for _, entry := range cm.memoryCache {
-		// Skip entries from different tenants if tenant isolation is enabled
-		if cm.config.PerTenantLimits && entry.TenantID != tenantID {
-			continue
-		}
-
-		// Skip expired entries
-		if time.Now().After(entry.ExpiresAt) {
-			continue
-		}
-
-		// Skip entries with different models
-		if entry.Request.Model != req.Model {
-			continue
-		}
-
+	similarityCalculator := func(entry *CacheEntry) float64 {
 		// Extract tokens from cached entry
 		entryTokens := cm.extractTokens(entry.Request)
-
-		// Calculate token similarity
-		similarity := cm.calculateTokenSimilarity(reqTokens, entryTokens)
-
-		if similarity >= threshold && similarity > bestSimilarity {
-			bestSimilarity = similarity
-			bestMatch = entry
-		}
+		return cm.calculateTokenSimilarity(reqTokens, entryTokens)
 	}
 
-	return bestMatch, bestSimilarity
+	return cm.findBestSimilarityMatch(req, tenantID, similarityCalculator, threshold)
 }
 
 // lookupHybrid combines multiple caching strategies
