@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -1016,4 +1017,161 @@ func TestCacheManager_EstimateQueryLength(t *testing.T) {
 	cacheReq.Messages = []openai.Message{}
 	length = manager.estimateQueryLength(cacheReq)
 	assert.Equal(t, 0, length)
+}
+
+func TestCacheManager_CleanupMethods(t *testing.T) {
+	logger := zaptest.NewLogger(t).Sugar()
+	config := &CacheConfig{
+		Strategy: StrategyAdaptive,
+		AdaptiveConfig: &AdaptiveConfig{
+			EnablePatternDetection: true,
+			TuningInterval:         30 * time.Minute,
+		},
+	}
+
+	manager, err := NewCacheManager(config, nil, logger)
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	// Test cleanupModelPatterns
+	t.Run("cleanupModelPatterns", func(t *testing.T) {
+		// Add more models than the limit
+		for i := 0; i < MaxModelPatterns+10; i++ {
+			manager.adaptiveState.PatternDetection.CommonModels[fmt.Sprintf("model-%d", i)] = int64(i)
+		}
+
+		initialCount := len(manager.adaptiveState.PatternDetection.CommonModels)
+		manager.cleanupModelPatterns()
+		finalCount := len(manager.adaptiveState.PatternDetection.CommonModels)
+
+		assert.LessOrEqual(t, finalCount, MaxModelPatterns)
+		assert.Less(t, finalCount, initialCount)
+	})
+
+	// Test cleanupTimePatterns
+	t.Run("cleanupTimePatterns", func(t *testing.T) {
+		// Add time patterns for all hours
+		for hour := 0; hour < 24; hour++ {
+			manager.adaptiveState.PatternDetection.TimePatterns[hour] = int64(hour)
+		}
+
+		manager.cleanupTimePatterns()
+		finalCount := len(manager.adaptiveState.PatternDetection.TimePatterns)
+
+		assert.LessOrEqual(t, finalCount, MaxTimePatternEntries)
+	})
+
+	// Test cleanupUserPatterns
+	t.Run("cleanupUserPatterns", func(t *testing.T) {
+		// Add more users than the limit
+		for i := 0; i < MaxUserPatternsPerTenant+10; i++ {
+			manager.adaptiveState.PatternDetection.UserPatterns[fmt.Sprintf("user-%d", i)] = int64(i)
+		}
+
+		initialCount := len(manager.adaptiveState.PatternDetection.UserPatterns)
+		manager.cleanupUserPatterns()
+		finalCount := len(manager.adaptiveState.PatternDetection.UserPatterns)
+
+		assert.LessOrEqual(t, finalCount, MaxUserPatternsPerTenant)
+		assert.Less(t, finalCount, initialCount)
+	})
+
+	// Test cleanupQueryLengthData
+	t.Run("cleanupQueryLengthData", func(t *testing.T) {
+		// Add more query lengths than the limit
+		for i := 0; i < MaxQueryLengthSamples+10; i++ {
+			manager.adaptiveState.PatternDetection.QueryLength = append(
+				manager.adaptiveState.PatternDetection.QueryLength, i)
+		}
+
+		initialCount := len(manager.adaptiveState.PatternDetection.QueryLength)
+		manager.cleanupQueryLengthData()
+		finalCount := len(manager.adaptiveState.PatternDetection.QueryLength)
+
+		assert.LessOrEqual(t, finalCount, MaxQueryLengthSamples)
+		assert.Less(t, finalCount, initialCount)
+	})
+
+	// Test cleanupResponseSizeData
+	t.Run("cleanupResponseSizeData", func(t *testing.T) {
+		// Add more response sizes than the limit
+		for i := 0; i < MaxResponseSizeSamples+10; i++ {
+			manager.adaptiveState.PatternDetection.ResponseSize = append(
+				manager.adaptiveState.PatternDetection.ResponseSize, i)
+		}
+
+		initialCount := len(manager.adaptiveState.PatternDetection.ResponseSize)
+		manager.cleanupResponseSizeData()
+		finalCount := len(manager.adaptiveState.PatternDetection.ResponseSize)
+
+		assert.LessOrEqual(t, finalCount, MaxResponseSizeSamples)
+		assert.Less(t, finalCount, initialCount)
+	})
+
+	// Test cleanupStrategyHistory
+	t.Run("cleanupStrategyHistory", func(t *testing.T) {
+		// Add more strategy history entries than the limit
+		for i := 0; i < MaxStrategyHistoryEntries+10; i++ {
+			manager.adaptiveState.StrategyHistory = append(manager.adaptiveState.StrategyHistory, StrategyChange{
+				Timestamp:    time.Now(),
+				FromStrategy: StrategyExact,
+				ToStrategy:   StrategySemantic,
+				Reason:       fmt.Sprintf("test-%d", i),
+				HitRate:      0.5,
+			})
+		}
+
+		initialCount := len(manager.adaptiveState.StrategyHistory)
+		manager.cleanupStrategyHistory()
+		finalCount := len(manager.adaptiveState.StrategyHistory)
+
+		assert.LessOrEqual(t, finalCount, MaxStrategyHistoryEntries)
+		assert.Less(t, finalCount, initialCount)
+	})
+}
+
+func TestCacheManager_EstimateResponseSize(t *testing.T) {
+	logger := zaptest.NewLogger(t).Sugar()
+	config := &CacheConfig{
+		Strategy: StrategyAdaptive,
+		AdaptiveConfig: &AdaptiveConfig{
+			EnablePatternDetection: true,
+		},
+	}
+
+	manager, err := NewCacheManager(config, nil, logger)
+	require.NoError(t, err)
+	defer manager.Stop()
+
+	// Test with nil response
+	size := manager.estimateResponseSize(nil)
+	assert.Equal(t, 0, size)
+
+	// Test with empty response
+	emptyResponse := &openai.ChatCompletionResponse{
+		Id:      "",
+		Choices: []openai.Choice{},
+		Usage:   openai.Usage{},
+	}
+	size = manager.estimateResponseSize(emptyResponse)
+	assert.Greater(t, size, 0)
+
+	// Test with response containing content
+	response := &openai.ChatCompletionResponse{
+		Id: "test-id",
+		Choices: []openai.Choice{
+			{
+				Message: openai.Message{
+					Content: &openai.MessageContent{
+						String: stringPtr("This is a test response"),
+					},
+				},
+			},
+		},
+		Usage: openai.Usage{},
+	}
+	size = manager.estimateResponseSize(response)
+	assert.Greater(t, size, 0)
+	assert.Contains(t, size, len("test-id"))
+	assert.Contains(t, size, len("This is a test response"))
 }
