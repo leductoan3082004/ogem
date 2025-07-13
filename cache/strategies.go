@@ -640,7 +640,6 @@ func (cm *CacheManager) updateAdaptiveLearning(result *CacheLookupResult, req *C
 			cm.cleanupResponseSizeData()
 		}
 
-		// Update last analysis time
 		cm.adaptiveState.PatternDetection.LastAnalysis = time.Now()
 	}
 
