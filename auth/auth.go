@@ -23,7 +23,6 @@ type VirtualKey struct {
 	ExpiresAt   *time.Time        `json:"expires_at,omitempty"`
 	IsActive    bool              `json:"is_active"`
 	UsageStats  *UsageStats       `json:"usage_stats,omitempty"`
-	VirtualKey  string            `json:"virtual_key,omitempty"`
 	Permissions []string          `json:"permissions,omitempty"`
 }
 
@@ -31,7 +30,6 @@ type UsageStats struct {
 	TotalTokens   int64      `json:"total_tokens"`
 	TotalRequests int64      `json:"total_requests"`
 	TotalCost     float64    `json:"total_cost"`
-	Used          float64    `json:"used"`
 	LastUsed      *time.Time `json:"last_used,omitempty"`
 }
 
@@ -103,8 +101,6 @@ type KeyResponse struct {
 	ExpiresAt   *time.Time        `json:"expires_at,omitempty"`
 	IsActive    bool              `json:"is_active"`
 	UsageStats  *UsageStats       `json:"usage_stats,omitempty"`
-	VirtualKey  string            `json:"virtual_key,omitempty"`
-	Permissions []string          `json:"permissions,omitempty"`
 }
 
 type Manager interface {
