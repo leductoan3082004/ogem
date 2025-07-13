@@ -14,10 +14,10 @@ import (
 type AuthMethod string
 
 const (
-	AuthMethodMaster   AuthMethod = "master"
-	AuthMethodVirtual  AuthMethod = "virtual"
-	AuthMethodJWT      AuthMethod = "jwt"
-	AuthMethodOAuth2   AuthMethod = "oauth2"
+	AuthMethodMaster  AuthMethod = "master"
+	AuthMethodVirtual AuthMethod = "virtual"
+	AuthMethodJWT     AuthMethod = "jwt"
+	AuthMethodOAuth2  AuthMethod = "oauth2"
 )
 
 // EnhancedAuthContext extends the basic AuthContext with additional fields
@@ -38,16 +38,16 @@ type EnhancedAuthContext struct {
 type EnhancedAuthConfig struct {
 	// JWT configuration
 	JWT *JWTConfig `yaml:"jwt,omitempty"`
-	
+
 	// OAuth2 providers configuration
 	OAuth2 map[string]*OAuth2Config `yaml:"oauth2,omitempty"`
-	
+
 	// Enable virtual keys
 	EnableVirtualKeys bool `yaml:"enable_virtual_keys"`
-	
+
 	// Master API key
 	MasterAPIKey string `yaml:"master_api_key"`
-	
+
 	// Default roles and permissions for new users
 	DefaultRoles       []string `yaml:"default_roles"`
 	DefaultPermissions []string `yaml:"default_permissions"`
@@ -70,7 +70,7 @@ type EnhancedVirtualKeyManager interface {
 	GetKey(ctx context.Context, keyID string) (*VirtualKey, error)
 	ListKeys(ctx context.Context) ([]*VirtualKey, error)
 	DeleteKey(ctx context.Context, keyID string) error
-	UpdateUsage(ctx context.Context, keyID string, tokens int64, requests int64, cost float64) error
+	UpdateUsage(ctx context.Context, keyValue string, tokens int64, cost float64) error
 }
 
 // NewUnifiedAuthManager creates a new unified authentication manager
@@ -85,12 +85,12 @@ func NewUnifiedAuthManager(
 		logger:            logger,
 		config:            config,
 	}
-	
+
 	// Initialize JWT manager if configured
 	if config.JWT != nil {
 		manager.jwtManager = NewJWTManager(config.JWT, logger)
 	}
-	
+
 	// Initialize OAuth2 manager if configured
 	if config.OAuth2 != nil && len(config.OAuth2) > 0 {
 		oauth2Manager, err := NewOAuth2Manager(config.OAuth2, manager.jwtManager, logger)
@@ -99,7 +99,7 @@ func NewUnifiedAuthManager(
 		}
 		manager.oauth2Manager = oauth2Manager
 	}
-	
+
 	return manager, nil
 }
 
@@ -109,15 +109,15 @@ func (u *UnifiedAuthManager) AuthenticateRequest(r *http.Request) (*AuthContext,
 	if authHeader == "" {
 		return nil, fmt.Errorf("authorization header required")
 	}
-	
+
 	parts := strings.Split(authHeader, " ")
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid authorization header format")
 	}
-	
+
 	scheme := strings.ToLower(parts[0])
 	token := parts[1]
-	
+
 	switch scheme {
 	case "bearer":
 		return u.authenticateBearer(token, r)
@@ -144,7 +144,7 @@ func (u *UnifiedAuthManager) authenticateBearer(token string, r *http.Request) (
 			},
 		}, nil
 	}
-	
+
 	// Try JWT authentication
 	if u.jwtManager != nil {
 		if claims, err := u.jwtManager.ValidateToken(token); err == nil {
@@ -165,7 +165,7 @@ func (u *UnifiedAuthManager) authenticateBearer(token string, r *http.Request) (
 			}, nil
 		}
 	}
-	
+
 	// Try virtual key authentication
 	if u.virtualKeyManager != nil && u.config.EnableVirtualKeys {
 		// ValidateKey expects modelName, but we don't have it here, so pass empty string
@@ -186,7 +186,7 @@ func (u *UnifiedAuthManager) authenticateBearer(token string, r *http.Request) (
 			}
 		}
 	}
-	
+
 	return nil, fmt.Errorf("invalid token")
 }
 
@@ -195,7 +195,7 @@ func (u *UnifiedAuthManager) ValidatePermission(authCtx *AuthContext, permission
 	if authCtx == nil || authCtx.Claims == nil {
 		return false
 	}
-	
+
 	// Admin has all permissions
 	if roles, ok := authCtx.Claims["roles"].([]string); ok {
 		for _, role := range roles {
@@ -204,7 +204,7 @@ func (u *UnifiedAuthManager) ValidatePermission(authCtx *AuthContext, permission
 			}
 		}
 	}
-	
+
 	// Check wildcard permissions
 	if permissions, ok := authCtx.Claims["permissions"].([]string); ok {
 		for _, perm := range permissions {
@@ -214,7 +214,7 @@ func (u *UnifiedAuthManager) ValidatePermission(authCtx *AuthContext, permission
 			if perm == permission {
 				return true
 			}
-			
+
 			// Check prefix match (e.g., "chat:*" matches "chat:create")
 			if strings.HasSuffix(perm, ":*") {
 				prefix := strings.TrimSuffix(perm, "*")
@@ -224,7 +224,7 @@ func (u *UnifiedAuthManager) ValidatePermission(authCtx *AuthContext, permission
 			}
 		}
 	}
-	
+
 	return false
 }
 
@@ -233,7 +233,7 @@ func (u *UnifiedAuthManager) ValidateRole(authCtx *AuthContext, role string) boo
 	if authCtx == nil || authCtx.Claims == nil {
 		return false
 	}
-	
+
 	if roles, ok := authCtx.Claims["roles"].([]string); ok {
 		for _, r := range roles {
 			if r == role {
@@ -249,7 +249,7 @@ func (u *UnifiedAuthManager) GenerateJWTToken(userID, email, username string, ro
 	if u.jwtManager == nil {
 		return "", "", fmt.Errorf("JWT authentication not enabled")
 	}
-	
+
 	return u.jwtManager.GenerateToken(userID, email, username, roles, permissions, teamID, organization)
 }
 
@@ -258,7 +258,7 @@ func (u *UnifiedAuthManager) RefreshJWTToken(refreshToken string, roles, permiss
 	if u.jwtManager == nil {
 		return "", fmt.Errorf("JWT authentication not enabled")
 	}
-	
+
 	return u.jwtManager.RefreshToken(refreshToken, roles, permissions, teamID, organization)
 }
 
@@ -267,7 +267,7 @@ func (u *UnifiedAuthManager) GetOAuth2AuthURL(provider string) (string, error) {
 	if u.oauth2Manager == nil {
 		return "", fmt.Errorf("OAuth2 authentication not enabled")
 	}
-	
+
 	state := u.oauth2Manager.GenerateStateToken()
 	return u.oauth2Manager.GetAuthURL(provider, state)
 }
@@ -277,19 +277,19 @@ func (u *UnifiedAuthManager) HandleOAuth2Callback(provider, code string) (*OAuth
 	if u.oauth2Manager == nil {
 		return nil, "", "", fmt.Errorf("OAuth2 authentication not enabled")
 	}
-	
+
 	// Exchange code for token
 	token, err := u.oauth2Manager.ExchangeCode(provider, code)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("failed to exchange code: %v", err)
 	}
-	
+
 	// Get user info
 	userInfo, err := u.oauth2Manager.GetUserInfo(provider, token)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("failed to get user info: %v", err)
 	}
-	
+
 	// Generate JWT tokens
 	userID := fmt.Sprintf("%s:%s", provider, userInfo.ID)
 	accessToken, refreshToken, err := u.GenerateJWTToken(
@@ -304,7 +304,7 @@ func (u *UnifiedAuthManager) HandleOAuth2Callback(provider, code string) (*OAuth
 	if err != nil {
 		return nil, "", "", fmt.Errorf("failed to generate JWT tokens: %v", err)
 	}
-	
+
 	return userInfo, accessToken, refreshToken, nil
 }
 
@@ -377,7 +377,7 @@ func (u *UnifiedAuthManager) RegisterAuthRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("/auth/jwt/login", u.jwtManager.HandleLogin)
 		mux.HandleFunc("/auth/jwt/refresh", u.jwtManager.HandleRefresh)
 	}
-	
+
 	// OAuth2 routes
 	if u.oauth2Manager != nil {
 		u.oauth2Manager.RegisterOAuth2Routes(mux)
@@ -394,19 +394,19 @@ func GetAuthContextFromContext(ctx context.Context) (*AuthContext, error) {
 }
 
 // TrackVirtualKeyUsage tracks usage for virtual keys
-func (u *UnifiedAuthManager) TrackVirtualKeyUsage(ctx context.Context, tokens int64, requests int64, cost float64) error {
+func (u *UnifiedAuthManager) TrackVirtualKeyUsage(ctx context.Context, tokens int64, cost float64) error {
 	authCtx, err := GetAuthContextFromContext(ctx)
 	if err != nil || authCtx.Claims == nil {
 		// No auth context
 		return nil
 	}
-	
+
 	method, ok := authCtx.Claims["method"].(string)
 	if !ok || method != string(AuthMethodVirtual) {
 		// Not a virtual key
 		return nil
 	}
-	
+
 	virtualKey, ok := authCtx.Claims["virtual_key"].(*VirtualKey)
 	if !ok || virtualKey == nil {
 		// No virtual key in context
@@ -432,7 +432,7 @@ func DefaultEnhancedAuthConfig() *EnhancedAuthConfig {
 		DefaultPermissions: []string{"chat:create", "embedding:create", "image:create"},
 		JWT: &JWTConfig{
 			Algorithm:         "HS256",
-			TokenExpiration:   time.Hour * 1,     // 1 hour
+			TokenExpiration:   time.Hour * 1,      // 1 hour
 			RefreshExpiration: time.Hour * 24 * 7, // 7 days
 			Issuer:            "ogem-proxy",
 			Audience:          "ogem-api",

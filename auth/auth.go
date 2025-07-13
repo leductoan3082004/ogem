@@ -125,3 +125,30 @@ func GenerateKeyID() (string, error) {
 	}
 	return "key_" + hex.EncodeToString(bytes), nil
 }
+
+func VirtualKeyToKeyResponse(key *VirtualKey) *KeyResponse {
+	return &KeyResponse{
+		ID:          key.ID,
+		Key:         key.Key,
+		Name:        key.Name,
+		Description: key.Description,
+		Models:      key.Models,
+		MaxTokens:   key.MaxTokens,
+		MaxRequests: key.MaxRequests,
+		Budget:      key.Budget,
+		Metadata:    key.Metadata,
+		CreatedAt:   key.CreatedAt,
+		ExpiresAt:   key.ExpiresAt,
+		IsActive:    key.IsActive,
+		UsageStats:  key.UsageStats,
+	}
+}
+
+// VirtualKeysToKeyResponses converts a slice of VirtualKey to slice of KeyResponse
+func VirtualKeysToKeyResponses(keys []*VirtualKey) []*KeyResponse {
+	responses := make([]*KeyResponse, len(keys))
+	for i, key := range keys {
+		responses[i] = VirtualKeyToKeyResponse(key)
+	}
+	return responses
+}

@@ -25,6 +25,26 @@ func (m *MemoryManager) CreateKey(ctx context.Context, req *KeyRequest) (*Virtua
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	if req.Name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+
+	if req.MaxTokens != nil && *req.MaxTokens <= 0 {
+		return nil, fmt.Errorf("max_tokens must be positive")
+	}
+
+	if req.MaxRequests != nil && *req.MaxRequests <= 0 {
+		return nil, fmt.Errorf("max_requests must be positive")
+	}
+
+	if req.Budget != nil && *req.Budget <= 0 {
+		return nil, fmt.Errorf("budget must be positive")
+	}
+
+	if req.ExpiresAt != nil && req.ExpiresAt.Before(time.Now()) {
+		return nil, fmt.Errorf("expires_at cannot be in the past")
+	}
+
 	keyID, err := GenerateKeyID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate key ID: %v", err)
