@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"time"
 
@@ -80,7 +81,8 @@ func (a *AdminServer) handleAPIStats(w http.ResponseWriter, r *http.Request) {
 func (a *AdminServer) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 	keys, err := a.virtualKeyManager.ListKeys(r.Context())
 	if err != nil {
-		http.Error(w, "Failed to list keys: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("[handleAPIKeys] Failed to list keys: %v", err)
+		http.Error(w, "Failed to list keys", http.StatusInternalServerError)
 		return
 	}
 
@@ -178,7 +180,8 @@ func (a *AdminServer) handleDeleteKey(w http.ResponseWriter, r *http.Request) {
 func (a *AdminServer) getDashboardData() (*DashboardData, error) {
 	keys, err := a.virtualKeyManager.ListKeys(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("failed to list keys: %w", err)
+		log.Printf("[getDashboardData] Failed to list keys: %v", err)
+		return nil, fmt.Errorf("failed to list keys")
 	}
 
 	totalCost := 0.0
