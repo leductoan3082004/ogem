@@ -72,7 +72,15 @@ func (cm *CacheManager) lookupSemantic(ctx context.Context, req *CacheRequest, t
 
 func (cm *CacheManager) findBestSimilarityMatch(req *CacheRequest, tenantID string, similarityCalculator func(*CacheEntry) float64, threshold float64) (*CacheEntry, float64) {
 	cm.memoryMutex.RLock()
-	defer cm.memoryMutex.RUnlock()
+
+	// The work around is to ensure that the lock is released even if the function returns early, preserve defer statement while releasing the lock explicitly.
+	// This variable is used to prevent double unlocking.
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			cm.memoryMutex.RUnlock()
+		}
+	}()
 
 	var bestMatch *CacheEntry
 	var bestSimilarity float64
@@ -102,9 +110,12 @@ func (cm *CacheManager) findBestSimilarityMatch(req *CacheRequest, tenantID stri
 		}
 	}
 
+	// Explicitly release the lock before returning
+	cm.memoryMutex.RUnlock()
+	unlocked = true
+
 	return bestMatch, bestSimilarity
 }
-
 func (cm *CacheManager) findBestSemanticMatch(reqEmbedding []float32, req *CacheRequest, tenantID string) (*CacheEntry, float64) {
 	threshold := cm.config.SemanticConfig.SimilarityThreshold
 
