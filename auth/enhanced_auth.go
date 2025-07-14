@@ -66,7 +66,7 @@ type UnifiedAuthManager struct {
 // EnhancedVirtualKeyManager extends the basic VirtualKeyManager interface
 type EnhancedVirtualKeyManager interface {
 	ValidateKey(ctx context.Context, key string) (*VirtualKey, error)
-	CreateKey(ctx context.Context, request KeyRequest) (*VirtualKey, error)
+	CreateKey(ctx context.Context, req *KeyRequest) (*VirtualKey, error)
 	GetKey(ctx context.Context, keyID string) (*VirtualKey, error)
 	ListKeys(ctx context.Context) ([]*VirtualKey, error)
 	DeleteKey(ctx context.Context, keyID string) error

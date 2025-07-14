@@ -34,6 +34,7 @@ type UsageStats struct {
 }
 
 // AuthManager interface for authentication management
+// Note: This interface is redundant, just embeds Manager, adds no value. Use Manager directly instead.
 type AuthManager interface {
 	Manager
 }
