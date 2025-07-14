@@ -168,23 +168,29 @@ func (u *UnifiedAuthManager) authenticateBearer(token string, r *http.Request) (
 
 	// Try virtual key authentication
 	if u.virtualKeyManager != nil && u.config.EnableVirtualKeys {
-		// ValidateKey expects modelName, but we don't have it here, so pass empty string
-		if vkm, ok := u.virtualKeyManager.(Manager); ok {
-			if vkey, err := vkm.ValidateKey(r.Context(), token, ""); err == nil {
-				return &AuthContext{
-					UserID:   "virtual:" + vkey.ID,
-					TenantID: "",
-					KeyID:    vkey.ID,
-					Claims: map[string]interface{}{
-						"method":      string(AuthMethodVirtual),
-						"username":    vkey.Name,
-						"roles":       u.config.DefaultRoles,
-						"permissions": u.config.DefaultPermissions,
-						"virtual_key": vkey,
-					},
-				}, nil
-			}
+		vkm, ok := u.virtualKeyManager.(Manager)
+		if !ok {
+			u.logger.Debugw("virtualKeyManager does not implement Manager interface")
+			return nil, fmt.Errorf("virtual key manager does not implement required interface")
 		}
+		// ValidateKey expects modelName, but we don't have it here, so pass empty string
+		vkey, err := vkm.ValidateKey(r.Context(), token, "")
+		if err != nil {
+			u.logger.Debugw("ValidateKey failed", "error", err)
+			return nil, fmt.Errorf("virtual key validation failed: %w", err)
+		}
+		return &AuthContext{
+			UserID:   "virtual:" + vkey.ID,
+			TenantID: "",
+			KeyID:    vkey.ID,
+			Claims: map[string]interface{}{
+				"method":      string(AuthMethodVirtual),
+				"username":    vkey.Name,
+				"roles":       u.config.DefaultRoles,
+				"permissions": u.config.DefaultPermissions,
+				"virtual_key": vkey,
+			},
+		}, nil
 	}
 
 	return nil, fmt.Errorf("invalid token")
