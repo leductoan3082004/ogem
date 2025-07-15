@@ -7,6 +7,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/yanolja/ogem/openai"
 )
 
 // lookupExact performs exact cache matching
@@ -68,15 +70,21 @@ func (cm *CacheManager) lookupSemantic(ctx context.Context, req *CacheRequest, t
 	}, nil
 }
 
-func (cm *CacheManager) findBestSemanticMatch(reqEmbedding []float32, req *CacheRequest, tenantID string) (*CacheEntry, float64) {
+func (cm *CacheManager) findBestSimilarityMatch(req *CacheRequest, tenantID string, similarityCalculator func(*CacheEntry) float64, threshold float64) (*CacheEntry, float64) {
 	cm.memoryMutex.RLock()
-	defer cm.memoryMutex.RUnlock()
+
+	// The work around is to ensure that the lock is released even if the function returns early, preserve defer statement while releasing the lock explicitly.
+	// This variable is used to prevent double unlocking.
+	unlocked := false
+	defer func() {
+		if !unlocked {
+			cm.memoryMutex.RUnlock()
+		}
+	}()
 
 	var bestMatch *CacheEntry
 	var bestSimilarity float64
-	threshold := cm.config.SemanticConfig.SimilarityThreshold
 
-	// Search through cached entries for semantic matches
 	for _, entry := range cm.memoryCache {
 		// Skip entries from different tenants if tenant isolation is enabled
 		if cm.config.PerTenantLimits && entry.TenantID != tenantID {
@@ -88,18 +96,13 @@ func (cm *CacheManager) findBestSemanticMatch(reqEmbedding []float32, req *Cache
 			continue
 		}
 
-		// Skip entries without embeddings
-		if len(entry.Embedding) == 0 {
-			continue
-		}
-
-		// Skip entries with different models (semantic matching should be model-specific)
+		// Skip entries with different models
 		if entry.Request.Model != req.Model {
 			continue
 		}
 
-		// Calculate semantic similarity
-		similarity := cm.calculateCosineSimilarity(reqEmbedding, entry.Embedding)
+		// Calculate similarity using the provided calculator
+		similarity := similarityCalculator(entry)
 
 		if similarity >= threshold && similarity > bestSimilarity {
 			bestSimilarity = similarity
@@ -107,7 +110,24 @@ func (cm *CacheManager) findBestSemanticMatch(reqEmbedding []float32, req *Cache
 		}
 	}
 
+	// Explicitly release the lock before returning
+	cm.memoryMutex.RUnlock()
+	unlocked = true
+
 	return bestMatch, bestSimilarity
+}
+func (cm *CacheManager) findBestSemanticMatch(reqEmbedding []float32, req *CacheRequest, tenantID string) (*CacheEntry, float64) {
+	threshold := cm.config.SemanticConfig.SimilarityThreshold
+
+	similarityCalculator := func(entry *CacheEntry) float64 {
+		// Skip entries without embeddings
+		if len(entry.Embedding) == 0 {
+			return 0.0
+		}
+		return cm.calculateCosineSimilarity(reqEmbedding, entry.Embedding)
+	}
+
+	return cm.findBestSimilarityMatch(req, tenantID, similarityCalculator, threshold)
 }
 
 // lookupToken performs token-based fuzzy cache matching
@@ -136,42 +156,15 @@ func (cm *CacheManager) lookupToken(req *CacheRequest, tenantID string) (*CacheL
 }
 
 func (cm *CacheManager) findBestTokenMatch(reqTokens []string, req *CacheRequest, tenantID string) (*CacheEntry, float64) {
-	cm.memoryMutex.RLock()
-	defer cm.memoryMutex.RUnlock()
-
-	var bestMatch *CacheEntry
-	var bestSimilarity float64
 	threshold := cm.config.TokenConfig.TokenSimilarityThreshold
 
-	for _, entry := range cm.memoryCache {
-		// Skip entries from different tenants if tenant isolation is enabled
-		if cm.config.PerTenantLimits && entry.TenantID != tenantID {
-			continue
-		}
-
-		// Skip expired entries
-		if time.Now().After(entry.ExpiresAt) {
-			continue
-		}
-
-		// Skip entries with different models
-		if entry.Request.Model != req.Model {
-			continue
-		}
-
+	similarityCalculator := func(entry *CacheEntry) float64 {
 		// Extract tokens from cached entry
 		entryTokens := cm.extractTokens(entry.Request)
-
-		// Calculate token similarity
-		similarity := cm.calculateTokenSimilarity(reqTokens, entryTokens)
-
-		if similarity >= threshold && similarity > bestSimilarity {
-			bestSimilarity = similarity
-			bestMatch = entry
-		}
+		return cm.calculateTokenSimilarity(reqTokens, entryTokens)
 	}
 
-	return bestMatch, bestSimilarity
+	return cm.findBestSimilarityMatch(req, tenantID, similarityCalculator, threshold)
 }
 
 // lookupHybrid combines multiple caching strategies
@@ -632,25 +625,36 @@ func (cm *CacheManager) updateAdaptiveLearning(result *CacheLookupResult, req *C
 	cm.adaptiveState.SampleCount++
 
 	// Update pattern detection
+	// In each step, we need to clean up the data to prevent memory leaks
 	if cm.config.AdaptiveConfig.EnablePatternDetection && cm.adaptiveState.PatternDetection != nil {
 		cm.adaptiveState.PatternDetection.CommonModels[req.Model]++
+		cm.cleanupModelPatterns()
 
 		hour := time.Now().Hour()
 		cm.adaptiveState.PatternDetection.TimePatterns[hour]++
+		cm.cleanupTimePatterns()
 
 		if tenantID != "" {
 			cm.adaptiveState.PatternDetection.UserPatterns[tenantID]++
+			cm.cleanupUserPatterns()
 		}
 
-		// Track query characteristics
+		// Track query characteristics with proper cleanup
 		queryLength := cm.estimateQueryLength(req)
 		cm.adaptiveState.PatternDetection.QueryLength = append(cm.adaptiveState.PatternDetection.QueryLength, queryLength)
+		cm.cleanupQueryLengthData()
 
 		// Keep only recent samples (limit memory usage)
-		if len(cm.adaptiveState.PatternDetection.QueryLength) > 1000 {
-			cm.adaptiveState.PatternDetection.QueryLength = cm.adaptiveState.PatternDetection.QueryLength[500:]
+		if result.Entry != nil && result.Entry.Response != nil {
+			responseSize := cm.estimateResponseSize(result.Entry.Response)
+			cm.adaptiveState.PatternDetection.ResponseSize = append(cm.adaptiveState.PatternDetection.ResponseSize, responseSize)
+			cm.cleanupResponseSizeData()
 		}
+
+		cm.adaptiveState.PatternDetection.LastAnalysis = time.Now()
 	}
+
+	cm.cleanupStrategyHistory()
 }
 
 // performAdaptiveTuning performs adaptive strategy tuning
@@ -749,6 +753,130 @@ func (cm *CacheManager) estimateQueryLength(req *CacheRequest) int {
 		}
 	}
 	return totalLength
+}
+
+// cleanupModelPatterns removes old model patterns to prevent memory leaks
+func (cm *CacheManager) cleanupModelPatterns() {
+	if len(cm.adaptiveState.PatternDetection.CommonModels) > MaxModelPatterns {
+		type modelCount struct {
+			model string
+			count int64
+		}
+
+		var models []modelCount
+		for model, count := range cm.adaptiveState.PatternDetection.CommonModels {
+			models = append(models, modelCount{model, count})
+		}
+
+		for i := 0; i < len(models)-1; i++ {
+			for j := i + 1; j < len(models); j++ {
+				if models[i].count > models[j].count {
+					models[i], models[j] = models[j], models[i]
+				}
+			}
+		}
+
+		toRemove := len(models) - MaxModelPatterns
+		for i := 0; i < toRemove; i++ {
+			delete(cm.adaptiveState.PatternDetection.CommonModels, models[i].model)
+		}
+	}
+}
+
+// cleanupTimePatterns removes old time patterns to prevent memory leaks
+func (cm *CacheManager) cleanupTimePatterns() {
+	if len(cm.adaptiveState.PatternDetection.TimePatterns) > MaxTimePatternEntries {
+		currentHour := time.Now().Hour()
+		for hour := range cm.adaptiveState.PatternDetection.TimePatterns {
+			hourDiff := (currentHour - hour + 24) % 24
+			if hourDiff > 24 {
+				delete(cm.adaptiveState.PatternDetection.TimePatterns, hour)
+			}
+		}
+	}
+}
+
+// cleanupUserPatterns removes old user patterns to prevent memory leaks
+func (cm *CacheManager) cleanupUserPatterns() {
+	if len(cm.adaptiveState.PatternDetection.UserPatterns) > MaxUserPatternsPerTenant {
+		type userCount struct {
+			user  string
+			count int64
+		}
+
+		var users []userCount
+		for user, count := range cm.adaptiveState.PatternDetection.UserPatterns {
+			users = append(users, userCount{user, count})
+		}
+
+		for i := 0; i < len(users)-1; i++ {
+			for j := i + 1; j < len(users); j++ {
+				if users[i].count > users[j].count {
+					users[i], users[j] = users[j], users[i]
+				}
+			}
+		}
+
+		toRemove := len(users) - MaxUserPatternsPerTenant
+		for i := 0; i < toRemove; i++ {
+			delete(cm.adaptiveState.PatternDetection.UserPatterns, users[i].user)
+		}
+	}
+}
+
+// cleanupQueryLengthData removes old query length data to prevent memory leaks
+func (cm *CacheManager) cleanupQueryLengthData() {
+	if len(cm.adaptiveState.PatternDetection.QueryLength) > MaxQueryLengthSamples {
+		cm.adaptiveState.PatternDetection.QueryLength = cm.adaptiveState.PatternDetection.QueryLength[QueryLengthCleanupThreshold:]
+	}
+}
+
+// cleanupResponseSizeData removes old response size data to prevent memory leaks
+func (cm *CacheManager) cleanupResponseSizeData() {
+	if len(cm.adaptiveState.PatternDetection.ResponseSize) > MaxResponseSizeSamples {
+		cm.adaptiveState.PatternDetection.ResponseSize = cm.adaptiveState.PatternDetection.ResponseSize[ResponseSizeCleanupThreshold:]
+	}
+}
+
+// cleanupStrategyHistory removes old strategy history entries to prevent memory leaks
+func (cm *CacheManager) cleanupStrategyHistory() {
+	if len(cm.adaptiveState.StrategyHistory) > MaxStrategyHistoryEntries {
+		excess := len(cm.adaptiveState.StrategyHistory) - MaxStrategyHistoryEntries
+		cm.adaptiveState.StrategyHistory = cm.adaptiveState.StrategyHistory[excess:]
+	}
+}
+
+// estimateResponseSize estimates the size of a response in bytes
+func (cm *CacheManager) estimateResponseSize(response *openai.ChatCompletionResponse) int {
+	if response == nil {
+		return 0
+	}
+
+	totalSize := 0
+
+	if response.Id != "" {
+		totalSize += len(response.Id)
+	}
+
+	if response.Choices != nil {
+		for _, choice := range response.Choices {
+			if choice.Message.Content != nil {
+				if choice.Message.Content.String != nil {
+					totalSize += len(*choice.Message.Content.String)
+				} else if choice.Message.Content.Parts != nil {
+					for _, part := range choice.Message.Content.Parts {
+						if part.Content.TextContent != nil {
+							totalSize += len(part.Content.TextContent.Text)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	totalSize += 64 // Rough estimate for usage fields
+
+	return totalSize
 }
 
 // Helper functions

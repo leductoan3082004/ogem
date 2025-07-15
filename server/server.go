@@ -1214,21 +1214,7 @@ func (s *ModelProxy) HandleCreateKey(httpResponse http.ResponseWriter, httpReque
 		return
 	}
 
-	response := auth.KeyResponse{
-		ID:          virtualKey.ID,
-		Key:         virtualKey.Key,
-		Name:        virtualKey.Name,
-		Description: virtualKey.Description,
-		Models:      virtualKey.Models,
-		MaxTokens:   virtualKey.MaxTokens,
-		MaxRequests: virtualKey.MaxRequests,
-		Budget:      virtualKey.Budget,
-		Metadata:    virtualKey.Metadata,
-		CreatedAt:   virtualKey.CreatedAt,
-		ExpiresAt:   virtualKey.ExpiresAt,
-		IsActive:    virtualKey.IsActive,
-		UsageStats:  virtualKey.UsageStats,
-	}
+	response := auth.VirtualKeyToKeyResponse(virtualKey)
 
 	httpResponse.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(httpResponse).Encode(response); err != nil {
@@ -1251,24 +1237,7 @@ func (s *ModelProxy) HandleListKeys(httpResponse http.ResponseWriter, httpReques
 		return
 	}
 
-	responses := make([]auth.KeyResponse, len(keys))
-	for i, key := range keys {
-		responses[i] = auth.KeyResponse{
-			ID:          key.ID,
-			Key:         key.Key,
-			Name:        key.Name,
-			Description: key.Description,
-			Models:      key.Models,
-			MaxTokens:   key.MaxTokens,
-			MaxRequests: key.MaxRequests,
-			Budget:      key.Budget,
-			Metadata:    key.Metadata,
-			CreatedAt:   key.CreatedAt,
-			ExpiresAt:   key.ExpiresAt,
-			IsActive:    key.IsActive,
-			UsageStats:  key.UsageStats,
-		}
-	}
+	responses := auth.VirtualKeysToKeyResponses(keys)
 
 	httpResponse.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(httpResponse).Encode(responses); err != nil {
@@ -1317,21 +1286,7 @@ func (s *ModelProxy) HandleGetKey(httpResponse http.ResponseWriter, httpRequest 
 		return
 	}
 
-	response := auth.KeyResponse{
-		ID:          key.ID,
-		Key:         key.Key,
-		Name:        key.Name,
-		Description: key.Description,
-		Models:      key.Models,
-		MaxTokens:   key.MaxTokens,
-		MaxRequests: key.MaxRequests,
-		Budget:      key.Budget,
-		Metadata:    key.Metadata,
-		CreatedAt:   key.CreatedAt,
-		ExpiresAt:   key.ExpiresAt,
-		IsActive:    key.IsActive,
-		UsageStats:  key.UsageStats,
-	}
+	response := auth.VirtualKeyToKeyResponse(key)
 
 	httpResponse.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(httpResponse).Encode(response); err != nil {

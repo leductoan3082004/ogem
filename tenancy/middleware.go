@@ -16,7 +16,7 @@ import (
 // TenantMiddleware provides HTTP middleware for multi-tenant request handling
 type TenantMiddleware struct {
 	tenantManager *TenantManager
-	authManager   *auth.AuthManager
+	authManager   auth.Manager
 	logger        *zap.SugaredLogger
 	config        *MiddlewareConfig
 }
@@ -60,7 +60,7 @@ const (
 )
 
 // NewTenantMiddleware creates a new tenant middleware
-func NewTenantMiddleware(tenantManager *TenantManager, authManager *auth.AuthManager, config *MiddlewareConfig, logger *zap.SugaredLogger) *TenantMiddleware {
+func NewTenantMiddleware(tenantManager *TenantManager, authManager auth.Manager, config *MiddlewareConfig, logger *zap.SugaredLogger) *TenantMiddleware {
 	if config == nil {
 		config = DefaultMiddlewareConfig()
 	}
