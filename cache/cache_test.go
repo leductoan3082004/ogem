@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap/zaptest"
 
 	"github.com/yanolja/ogem/openai"
+	ogem "github.com/yanolja/ogem/sdk/go"
 )
 
 func TestNewCacheManager(t *testing.T) {
@@ -30,32 +31,32 @@ func TestNewCacheManager(t *testing.T) {
 		{
 			name: "custom config",
 			config: &CacheConfig{
-				Enabled:          true,
-				Strategy:         StrategySemantic,
-				Backend:          BackendMemory,
-				DefaultTTL:       30 * time.Minute,
-				MaxEntries:       1000,
-				EnableMetrics:    true,
-				MetricsInterval:  5 * time.Minute,
+				Enabled:         true,
+				Strategy:        StrategySemantic,
+				Backend:         BackendMemory,
+				DefaultTTL:      30 * time.Minute,
+				MaxEntries:      1000,
+				EnableMetrics:   true,
+				MetricsInterval: 5 * time.Minute,
 			},
 			wantErr: false,
 		},
 		{
 			name: "adaptive strategy",
 			config: &CacheConfig{
-				Enabled:         true,
-				Strategy:        StrategyAdaptive,
-				Backend:         BackendMemory,
-				EnableMetrics:   false, // Disable metrics to avoid ticker issues
+				Enabled:       true,
+				Strategy:      StrategyAdaptive,
+				Backend:       BackendMemory,
+				EnableMetrics: false, // Disable metrics to avoid ticker issues
 				AdaptiveConfig: &AdaptiveConfig{
 					LearningWindow:         time.Hour,
-					MinSamples:            50,
-					Sensitivity:           0.1,
-					HighHitThreshold:      0.8,
-					LowHitThreshold:       0.3,
+					MinSamples:             50,
+					Sensitivity:            0.1,
+					HighHitThreshold:       0.8,
+					LowHitThreshold:        0.3,
 					EnablePatternDetection: true,
 					EnableAutoTuning:       true,
-					TuningInterval:        30 * time.Minute,
+					TuningInterval:         30 * time.Minute,
 				},
 			},
 			wantErr: false,
@@ -145,11 +146,11 @@ func TestDefaultCacheConfig(t *testing.T) {
 func TestCacheManager_StoreAndLookup(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
 	config := &CacheConfig{
-		Enabled:      true,
-		Strategy:     StrategyExact,
-		Backend:      BackendMemory,
-		DefaultTTL:   time.Hour,
-		MaxEntries:   100,
+		Enabled:       true,
+		Strategy:      StrategyExact,
+		Backend:       BackendMemory,
+		DefaultTTL:    time.Hour,
+		MaxEntries:    100,
 		EnableMetrics: false,
 	}
 
@@ -162,7 +163,7 @@ func TestCacheManager_StoreAndLookup(t *testing.T) {
 
 	// Create test request and response
 	request := &openai.ChatCompletionRequest{
-		Model: "gpt-4o",
+		Model: ogem.ModelGPT4o,
 		Messages: []openai.Message{
 			{
 				Role: "user",
@@ -179,7 +180,7 @@ func TestCacheManager_StoreAndLookup(t *testing.T) {
 		Id:      "chatcmpl-123",
 		Object:  "chat.completion",
 		Created: time.Now().Unix(),
-		Model:   "gpt-3.5-turbo",
+		Model:   ogem.ModelGPT35Turbo,
 		Choices: []openai.Choice{
 			{
 				Index: 0,
@@ -209,7 +210,7 @@ func TestCacheManager_StoreAndLookup(t *testing.T) {
 
 	// Test lookup with different request - should not find
 	differentRequest := &openai.ChatCompletionRequest{
-		Model: "gpt-4o",
+		Model: ogem.ModelGPT4o,
 		Messages: []openai.Message{
 			{
 				Role: "user",
@@ -242,7 +243,7 @@ func TestCacheManager_LookupDisabled(t *testing.T) {
 
 	ctx := context.Background()
 	request := &openai.ChatCompletionRequest{
-		Model: "gpt-4o",
+		Model: ogem.ModelGPT4o,
 		Messages: []openai.Message{
 			{
 				Role: "user",
@@ -262,11 +263,11 @@ func TestCacheManager_LookupDisabled(t *testing.T) {
 func TestCacheManager_TTLExpiration(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
 	config := &CacheConfig{
-		Enabled:      true,
-		Strategy:     StrategyExact,
-		Backend:      BackendMemory,
-		DefaultTTL:   10 * time.Millisecond, // Very short TTL for testing
-		MaxEntries:   100,
+		Enabled:       true,
+		Strategy:      StrategyExact,
+		Backend:       BackendMemory,
+		DefaultTTL:    10 * time.Millisecond, // Very short TTL for testing
+		MaxEntries:    100,
 		EnableMetrics: false,
 	}
 
@@ -278,7 +279,7 @@ func TestCacheManager_TTLExpiration(t *testing.T) {
 	tenantID := "test-tenant"
 
 	request := &openai.ChatCompletionRequest{
-		Model: "gpt-4o",
+		Model: ogem.ModelGPT4o,
 		Messages: []openai.Message{
 			{
 				Role: "user",
@@ -314,11 +315,11 @@ func TestCacheManager_TTLExpiration(t *testing.T) {
 func TestCacheManager_TenantSpecificTTL(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
 	config := &CacheConfig{
-		Enabled:      true,
-		Strategy:     StrategyExact,
-		Backend:      BackendMemory,
-		DefaultTTL:   time.Hour,
-		MaxEntries:   100,
+		Enabled:    true,
+		Strategy:   StrategyExact,
+		Backend:    BackendMemory,
+		DefaultTTL: time.Hour,
+		MaxEntries: 100,
 		TenantTTLOverrides: map[string]time.Duration{
 			"premium-tenant": 2 * time.Hour,
 			"trial-tenant":   30 * time.Minute,
@@ -330,7 +331,7 @@ func TestCacheManager_TenantSpecificTTL(t *testing.T) {
 	defer manager.Stop()
 
 	// Test TTL calculation for different tenants
-	cacheReq := &CacheRequest{Model: "gpt-3.5-turbo"}
+	cacheReq := &CacheRequest{Model: ogem.ModelGPT35Turbo}
 
 	defaultTTL := manager.calculateTTL(cacheReq, "regular-tenant")
 	assert.Equal(t, time.Hour, defaultTTL)
@@ -345,11 +346,11 @@ func TestCacheManager_TenantSpecificTTL(t *testing.T) {
 func TestCacheManager_MaxEntriesEviction(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
 	config := &CacheConfig{
-		Enabled:      true,
-		Strategy:     StrategyExact,
-		Backend:      BackendMemory,
-		DefaultTTL:   time.Hour,
-		MaxEntries:   3, // Small limit for testing
+		Enabled:       true,
+		Strategy:      StrategyExact,
+		Backend:       BackendMemory,
+		DefaultTTL:    time.Hour,
+		MaxEntries:    3, // Small limit for testing
 		EnableMetrics: false,
 	}
 
@@ -363,7 +364,7 @@ func TestCacheManager_MaxEntriesEviction(t *testing.T) {
 	// Store entries up to the limit
 	for i := 0; i < 4; i++ {
 		request := &openai.ChatCompletionRequest{
-			Model: "gpt-4o",
+			Model: ogem.ModelGPT4o,
 			Messages: []openai.Message{
 				{
 					Role: "user",
@@ -387,7 +388,7 @@ func TestCacheManager_MaxEntriesEviction(t *testing.T) {
 
 	// First entry should have been evicted
 	firstRequest := &openai.ChatCompletionRequest{
-		Model: "gpt-4o",
+		Model: ogem.ModelGPT4o,
 		Messages: []openai.Message{
 			{
 				Role: "user",
@@ -404,7 +405,7 @@ func TestCacheManager_MaxEntriesEviction(t *testing.T) {
 
 	// Last entry should still be there
 	lastRequest := &openai.ChatCompletionRequest{
-		Model: "gpt-4o",
+		Model: ogem.ModelGPT4o,
 		Messages: []openai.Message{
 			{
 				Role: "user",
@@ -431,7 +432,7 @@ func TestCacheManager_Clear(t *testing.T) {
 	// Store some entries
 	for i := 0; i < 3; i++ {
 		request := &openai.ChatCompletionRequest{
-			Model: "gpt-4o",
+			Model: ogem.ModelGPT4o,
 			Messages: []openai.Message{
 				{
 					Role: "user",
@@ -479,7 +480,7 @@ func TestCacheManager_ClearTenant(t *testing.T) {
 	tenants := []string{"tenant-1", "tenant-2", "tenant-3"}
 	for _, tenantID := range tenants {
 		request := &openai.ChatCompletionRequest{
-			Model: "gpt-4o",
+			Model: ogem.ModelGPT4o,
 			Messages: []openai.Message{
 				{
 					Role: "user",
@@ -535,7 +536,7 @@ func TestCacheManager_GetStats(t *testing.T) {
 
 	// Perform some cache operations
 	request := &openai.ChatCompletionRequest{
-		Model: "gpt-4o",
+		Model: ogem.ModelGPT4o,
 		Messages: []openai.Message{
 			{
 				Role: "user",
@@ -588,7 +589,7 @@ func TestCacheManager_ConvertToCacheRequest(t *testing.T) {
 	defer manager.Stop()
 
 	request := &openai.ChatCompletionRequest{
-		Model: "gpt-4o",
+		Model: ogem.ModelGPT4o,
 		Messages: []openai.Message{
 			{
 				Role: "user",
@@ -606,7 +607,7 @@ func TestCacheManager_ConvertToCacheRequest(t *testing.T) {
 
 	cacheReq := manager.convertToCacheRequest(request)
 
-	assert.Equal(t, "gpt-4o", cacheReq.Model)
+	assert.Equal(t, ogem.ModelGPT4o, cacheReq.Model)
 	assert.Len(t, cacheReq.Messages, 1)
 	assert.Equal(t, "user", cacheReq.Messages[0].Role)
 
@@ -624,7 +625,7 @@ func TestCacheManager_GenerateCacheKey(t *testing.T) {
 	defer manager.Stop()
 
 	cacheReq := &CacheRequest{
-		Model: "gpt-4o",
+		Model: ogem.ModelGPT4o,
 		Messages: []openai.Message{
 			{
 				Role: "user",
@@ -649,7 +650,7 @@ func TestCacheManager_GenerateCacheKey(t *testing.T) {
 
 	// Different request should produce different key
 	cacheReq2 := &CacheRequest{
-		Model: "gpt-4o",
+		Model: ogem.ModelGPT4o,
 		Messages: []openai.Message{
 			{
 				Role: "user",
@@ -674,7 +675,7 @@ func TestCacheManager_GenerateHash(t *testing.T) {
 	defer manager.Stop()
 
 	cacheReq := &CacheRequest{
-		Model: "gpt-4o",
+		Model: ogem.ModelGPT4o,
 		Messages: []openai.Message{
 			{
 				Role: "user",
@@ -701,7 +702,7 @@ func TestCacheManager_GenerateHash(t *testing.T) {
 	assert.Regexp(t, "^[a-f0-9]{16}$", hash1)
 
 	// Different request should produce different hash
-	cacheReq.Model = "gpt-4"
+	cacheReq.Model = ogem.ModelGPT4o
 	hash3 := manager.generateHash(cacheReq)
 	assert.NotEqual(t, hash1, hash3)
 }
@@ -762,11 +763,11 @@ func TestCacheManager_GetActiveStrategyAdaptive(t *testing.T) {
 		Backend:  BackendMemory,
 		AdaptiveConfig: &AdaptiveConfig{
 			LearningWindow:   time.Hour,
-			MinSamples:      50,
-			Sensitivity:     0.1,
+			MinSamples:       50,
+			Sensitivity:      0.1,
 			HighHitThreshold: 0.8,
-			LowHitThreshold: 0.3,
-			TuningInterval:  30 * time.Minute,
+			LowHitThreshold:  0.3,
+			TuningInterval:   30 * time.Minute,
 		},
 	}
 
@@ -791,15 +792,15 @@ func TestCacheManager_GetActiveStrategyAdaptive(t *testing.T) {
 func TestCacheEntry_Structure(t *testing.T) {
 	now := time.Now()
 	entry := &CacheEntry{
-		Key:        "test-key",
-		Hash:       "test-hash",
-		Request:    &CacheRequest{Model: "gpt-3.5-turbo"},
-		Response:   &openai.ChatCompletionResponse{Id: "test-response"},
-		CreatedAt:  now,
-		ExpiresAt:  now.Add(time.Hour),
+		Key:         "test-key",
+		Hash:        "test-hash",
+		Request:     &CacheRequest{Model: ogem.ModelGPT35Turbo},
+		Response:    &openai.ChatCompletionResponse{Id: "test-response"},
+		CreatedAt:   now,
+		ExpiresAt:   now.Add(time.Hour),
 		AccessCount: 5,
-		LastAccess: now,
-		TenantID:   "test-tenant",
+		LastAccess:  now,
+		TenantID:    "test-tenant",
 		Metadata: map[string]interface{}{
 			"source": "test",
 		},
@@ -811,7 +812,7 @@ func TestCacheEntry_Structure(t *testing.T) {
 
 	assert.Equal(t, "test-key", entry.Key)
 	assert.Equal(t, "test-hash", entry.Hash)
-	assert.Equal(t, "gpt-3.5-turbo", entry.Request.Model)
+	assert.Equal(t, ogem.ModelGPT35Turbo, entry.Request.Model)
 	assert.Equal(t, "test-response", entry.Response.Id)
 	assert.Equal(t, now, entry.CreatedAt)
 	assert.Equal(t, now.Add(time.Hour), entry.ExpiresAt)
@@ -827,7 +828,7 @@ func TestCacheEntry_Structure(t *testing.T) {
 
 func TestCacheRequest_Structure(t *testing.T) {
 	cacheReq := &CacheRequest{
-		Model: "gpt-4o",
+		Model: ogem.ModelGPT4o,
 		Messages: []openai.Message{
 			{
 				Role: "user",
@@ -842,7 +843,7 @@ func TestCacheRequest_Structure(t *testing.T) {
 		},
 	}
 
-	assert.Equal(t, "gpt-4o", cacheReq.Model)
+	assert.Equal(t, ogem.ModelGPT4o, cacheReq.Model)
 	assert.Len(t, cacheReq.Messages, 1)
 	assert.Equal(t, "user", cacheReq.Messages[0].Role)
 	assert.Equal(t, 0.8, cacheReq.Settings["temperature"])
@@ -870,17 +871,17 @@ func TestCacheLookupResult_Structure(t *testing.T) {
 
 func TestCacheStats_Structure(t *testing.T) {
 	stats := &CacheStats{
-		Hits:              100,
-		Misses:            25,
-		Stores:            110,
-		Evictions:         5,
-		TotalEntries:      105,
-		MemoryUsageMB:     50.5,
-		HitRate:           0.8,
-		AverageLatency:    10 * time.Millisecond,
-		ExactHits:         60,
-		SemanticHits:      25,
-		TokenHits:         15,
+		Hits:           100,
+		Misses:         25,
+		Stores:         110,
+		Evictions:      5,
+		TotalEntries:   105,
+		MemoryUsageMB:  50.5,
+		HitRate:        0.8,
+		AverageLatency: 10 * time.Millisecond,
+		ExactHits:      60,
+		SemanticHits:   25,
+		TokenHits:      15,
 		TenantStats: map[string]*TenantCacheStats{
 			"tenant-1": {
 				Hits:     50,
@@ -930,8 +931,8 @@ func TestAdaptiveState_Structure(t *testing.T) {
 		SampleCount:    150,
 		PatternDetection: &PatternData{
 			CommonModels: map[string]int64{
-				"gpt-3.5-turbo": 800,
-				"gpt-4":         200,
+				ogem.ModelGPT35Turbo: 800,
+				ogem.ModelGPT4:       200,
 			},
 			TimePatterns: map[int]int64{
 				9:  150,
@@ -958,7 +959,7 @@ func TestAdaptiveState_Structure(t *testing.T) {
 	assert.Equal(t, 150, state.LearningData["avg_query_length"])
 	assert.Equal(t, 150, state.SampleCount)
 	assert.NotNil(t, state.PatternDetection)
-	assert.Equal(t, int64(800), state.PatternDetection.CommonModels["gpt-3.5-turbo"])
+	assert.Equal(t, int64(800), state.PatternDetection.CommonModels[ogem.ModelGPT35Turbo])
 	assert.Equal(t, int64(200), state.PatternDetection.TimePatterns[10])
 	assert.Equal(t, int64(500), state.PatternDetection.UserPatterns["tenant-1"])
 	assert.Len(t, state.PatternDetection.QueryLength, 5)
@@ -990,11 +991,11 @@ func TestInvalidationPolicy_Constants(t *testing.T) {
 
 func createTestCacheManager(t *testing.T, logger *zap.SugaredLogger) *CacheManager {
 	config := &CacheConfig{
-		Enabled:      true,
-		Strategy:     StrategyExact,
-		Backend:      BackendMemory,
-		DefaultTTL:   time.Hour,
-		MaxEntries:   100,
+		Enabled:       true,
+		Strategy:      StrategyExact,
+		Backend:       BackendMemory,
+		DefaultTTL:    time.Hour,
+		MaxEntries:    100,
 		EnableMetrics: false,
 	}
 
